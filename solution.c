@@ -1,10 +1,16 @@
 #include <stdio.h>
 
-// ===== Set terminal to non-blocking mode ====
-#include <termios.h>
-#include <unistd.h>
-#include <fcntl.h>
+#ifdef _WIN32
+    #include <conio.h>
+    #include <windows.h>
+#else
+    #include <termios.h>
+    #include <unistd.h>
+    #include <fcntl.h>
+#endif
 
+// ===== Terminal handling functions =====
+#ifndef _WIN32
 void setNonblocking(int enable) {
     struct termios ttystate;
     tcgetattr(STDIN_FILENO, &ttystate);
@@ -19,13 +25,36 @@ void setNonblocking(int enable) {
 
     tcsetattr(STDIN_FILENO, TCSANOW, &ttystate);
 }
-char kbhit() {
+#endif
+
+char kbhit_cross() {
+#ifdef _WIN32
+    if (_kbhit()) return _getch();
+    else return 0;
+#else
     char ch = getchar();
     if (ch != EOF) return ch;
     return 0;
+#endif
 }
-// ============================================
 
+void sleep_ms(int ms) {
+#ifdef _WIN32
+    Sleep(ms);
+#else
+    usleep(ms * 1000);
+#endif
+}
+
+void clearScreen() {
+#ifdef _WIN32
+    system("cls");
+#else
+    printf("\033[2J\033[H");
+#endif
+}
+
+// ===== Game constants =====
 const int ROWS = 30;
 const int COLS = 50;
 
@@ -40,37 +69,39 @@ int ballVx = 1;
 int ballVy = 1;
 
 int gameOver = 0;
-
 int score = 0;
 
+// ===== Game functions =====
 void displayBoard(char gameboard[ROWS][COLS]) {
     printf("\033[H"); // move cursor to top
 
-    // ============= update new position for the ball ===========
-    ballX += ballVx*1;
-    ballY += ballVy*1;
+    // ====================================================================
+    // update ball position
+    ballX += ballVx;
+    ballY += ballVy;
 
-    // Ball hits the left wall / paddle
-    if (ballX <= 1 ) {
-        if (!( ballY >= paddleTopY && ballY <= paddleBottomY)) {
+    // Ball hits left wall/paddle
+    if (ballX <= 1) {
+        if (!(ballY >= paddleTopY && ballY <= paddleBottomY)) {
             gameOver = 1;
             return;
         }
         score++;
     }
-    // Bounce off right walls
-    if (ballX <= 1 || ballX >= COLS - 2) ballVx *= -1;
-    // Bounce off right and left walls
-    if (ballY <= 1 || ballY >= ROWS - 2) ballVy *= -1;
-    // =============================================================
+
+    // Bounce off right wall
+    if (ballX >= COLS - 2 || ballX <= 1) ballVx *= -1;
+    if (ballY >= ROWS - 2 || ballY <= 1) ballVy *= -1;
+    // =======================================================================
     
+    // Clear board
     for (int r = 0; r < ROWS; r++)
         for (int c = 0; c < COLS; c++)
             gameboard[r][c] = ' ';
-    
+
     gameboard[ballY][ballX] = '@';
 
-    //===== add border =============
+    // Add borders
     for (int c = 0; c < COLS; c++) {
         gameboard[0][c] = '-';
         gameboard[ROWS - 1][c] = '-';
@@ -79,57 +110,71 @@ void displayBoard(char gameboard[ROWS][COLS]) {
         gameboard[r][0] = '|';
         gameboard[r][COLS-1] = '|';
     }
-    //===============================
 
+    // Add paddle
     for (int r = paddleTopY; r < paddleBottomY; r++) {
-        gameboard[r][1] = '#'; // add paddle
+        gameboard[r][1] = '#';
     }
-    for (int i = 0; i < ROWS; i++){
-        for (int j = 0; j < COLS; j++) {
-            printf( "%c" ,gameboard[i][j]);
+
+    // Print board
+    for (int r = 0; r < ROWS; r++) {
+        for (int c = 0; c < COLS; c++) {
+            printf("%c", gameboard[r][c]);
         }
         printf("\n");
     }
+
     printf("score: %d\n", score);
 }
 
+// ===== Main =====
 int main() {
-    printf("Press w to move the paddle up, s to move it down. q or ctrl+c to quit. \n This is a terminal based game, clear your terminal with the clear command before starting, view in full screen.\n Press space to start");
-    setNonblocking(1); // enable non-blocking input
+    printf("Press w to move the paddle up, s to move it down. q or ctrl+c to quit.\n");
+    printf("This is a terminal-based game. Clear your terminal and view in full screen.\nPress space to start...");
+
+#ifndef _WIN32
+    setNonblocking(1); // enable non-blocking input on Linux/macOS
+#endif
+
     char move;
     while (1) {
-        move = kbhit();
-        if (move && move == ' ') {
-            break;
-        }
+        move = kbhit_cross();
+        if (move && move == ' ') break;
     }
+
     char gameboard[ROWS][COLS];
     while (!gameOver) {
         displayBoard(gameboard);
 
-        move = kbhit();
+        move = kbhit_cross();
         if (move) {
             if (move == 'w' && paddleTopY > 1) {
-                paddleTopY -= paddleVy*1;
-                paddleBottomY -= paddleVy*1;
+                paddleTopY -= paddleVy;
+                paddleBottomY -= paddleVy;
             }
             if (move == 's' && paddleBottomY < ROWS - 1) {
-                paddleTopY += paddleVy*1;
-                paddleBottomY += paddleVy*1;
+                paddleTopY += paddleVy;
+                paddleBottomY += paddleVy;
             }
             if (move == 'q') break;
         }
-        usleep(30000); // 30ms delay ~ 33 FPS
+
+        sleep_ms(30); // 30ms delay ~33 FPS
     }
-    usleep(30000);
-    printf("\033[2J\033[H"); // clear terminal & move cursor to top left
-    usleep(30000);
+
+    sleep_ms(30);
+    clearScreen();
+    sleep_ms(30);
     printf("Game over! Your score: %d. Press q or ctrl + c to exit.", score);
+
     while (1) {
-        move = kbhit();
-        if (move && move == 'q') {
-            break;
-        }
+        move = kbhit_cross();
+        if (move && move == 'q') break;
     }
-    setNonblocking(0); // restore terminal
+
+#ifndef _WIN32
+    setNonblocking(0); // restore terminal on Linux/macOS
+#endif
+
+    return 0;
 }
